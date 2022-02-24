@@ -69,10 +69,12 @@ static const char* country_string(const byte b) {
 
 void Rom::unload() {
   free(data);
+  free(rom_name);
 }
 
 bool Rom::load(const char* path) {
   bool ok = false;
+  rom_name = NULL;
 
   // open the file
   FILE* file = fopen(path, "rb");
@@ -85,7 +87,7 @@ bool Rom::load(const char* path) {
   if (fseek(file, 0L, SEEK_END) != 0) goto close_file;
 
   data_size = ftell(file);
-  LOG_TRACE("File size is: %li\n", data_size);
+  LOG_TRACE("ROM size is: %liMBs\n", data_size / 1024 / 1024);
 
   if (data_size == -1L) goto close_file;
   if (data_size < MIN_ROM_SIZE) {
@@ -114,6 +116,7 @@ bool Rom::load(const char* path) {
 
 unload:
   free(data);
+  free(rom_name);
 
 close_file:
   fclose(file);
@@ -143,13 +146,20 @@ bool Rom::verify_header() {
   LOG("ROM Name: ");
   // Japanese uses Shift JIS
   if (country == 0x4A) {
-    char* shift_js_str = sj2utf8_alloc(title, TITLE_SIZE);
-    LOG("%s\n", shift_js_str);
-    free(shift_js_str);
+    rom_name = sj2utf8_alloc(title, TITLE_SIZE);
+    LOG("%s\n", rom_name);
   } else {
     // Otherwise it's just ASCII
-    for (unsigned int i = 0; i < TITLE_SIZE; i++) LOG("%c", title[i]);
-    LOG("\n");
+    // so create an easy to use string
+    rom_name = (char*) malloc(sizeof(char)*TITLE_SIZE);
+    memcpy(rom_name, title, TITLE_SIZE);
+    size_t i = TITLE_SIZE;
+    while (i != 0) {
+      if (rom_name[i] == ' ') rom_name[i] = '\0';
+      else if (rom_name[i] != '\0') break;
+      --i;
+    }
+    LOG("%s\n", rom_name);
   }
 
   const char* country_str = country_string(country);
@@ -231,8 +241,6 @@ void reverse_copy(byte* to, const byte* from, const size_t n) {
 #endif
 }
 
-// #include "capstone_test.h"
-
 bool Rom::find_binary() {
   const uint32_t entry = entry_point();
   LOG("bootcode %i\n", bootcode);
@@ -243,14 +251,12 @@ bool Rom::find_binary() {
   int incond_branch = 0;
   uint32_t asm_end = 0;
 
-  // capstone
-  //test(&data[0x1000], data_size, entry);
-  //return;
+  mips_set_file(rom_name);
 
   // We process each 32 bits as Mips instructions until we hit
   // something malformed, then assume ASM stops there.
   // This is not foolproof, as non ASM binary data could still be
-  // valid Mips. This is as good as we can get when decompiling.
+  // valid MIPS. This is as good as we can get when decompiling.
   Instruction mips_inst;
   for (uint32_t at = BOOTCODE_ENDS; at < data_size; at += sizeof(mips_inst)) {
     reverse_copy((byte*)&mips_inst, &data[at], sizeof(mips_inst));
@@ -280,6 +286,8 @@ bool Rom::find_binary() {
   LOG("# inconditional branches: %i\n", incond_branch);
   LOG("asm code ends at: 0x%x\n", asm_end);
   LOG("binary starts at: 0x%x\n", binary_start);
+
+  mips_close_file();
 
   return true;
 }

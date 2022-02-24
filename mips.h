@@ -24,13 +24,8 @@
   Manual:
   https://hack64.net/docs/VR43XX.pdf
 
-  Missing instructions:
-  bczf
-  bczfl
-  bczt
-  bcztl
-  copz
-  dmfc0
+  Missing:
+- Figure out difference with COPz instructions compared to other disassemblers like Capstone.
 */
 
 struct JType {
@@ -59,6 +54,9 @@ typedef union Instruction {
   struct IType i;
   struct JType j;
 } Instruction;
+
+void mips_set_file(const char* name);
+void mips_close_file();
 
 bool mips_is_j(const struct JType inst);
 bool mips_is_b(const struct IType inst);

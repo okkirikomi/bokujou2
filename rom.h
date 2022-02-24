@@ -19,6 +19,7 @@ struct Rom {
   unsigned char operator[] (size_t i) const { return data[i]; }
   unsigned char& operator[] (size_t i) { return data[i]; }
 
+  char* rom_name;
   byte* data;
   long data_size;
   uint32_t binary_start;

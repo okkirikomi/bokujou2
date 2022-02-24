@@ -1,13 +1,34 @@
 #include "mips.h"
 
-#define PRINT_MIPS 1
+//#define ENABLE_COPZ
 
-#if PRINT_MIPS
+#define PRINT_MIPS
+
+#ifdef PRINT_MIPS
 #include <stdio.h>
-#define PRINT(...) do { printf("0x%08X ", pc); printf(__VA_ARGS__); } while (0)
+FILE* f = stdout;
+#define PRINT(...) do { fprintf(f,"0x%08X ", pc); fprintf(f,__VA_ARGS__); } while (0)
 #else
-#define PRINT(...)
+#define PRINT(...) ;
 #endif
+
+void mips_set_file(const char* name) {
+#ifdef PRINT_MIPS
+  char file_name[128];
+  if (snprintf(file_name, 64, "%s.asm", name) < 0) return;
+  f = fopen(file_name, "w");
+  if (f == NULL) f = stdout;
+#else
+  (void) name;
+#endif
+}
+
+void mips_close_file() {
+#ifdef PRINT_MIPS
+  fclose(f);
+  f = stdout;
+#endif
+}
 
 static const char* cond_str(const unsigned int cond) {
   switch (cond) {
@@ -198,7 +219,8 @@ bool handle_r(const uint32_t pc, const struct RType inst) {
       break;
     case 33:
       if (inst.shamt != 0x0) return false;
-      PRINT("%-8s %s, %s, %s\n", "addu", reg_str(inst.rd), reg_str(inst.rs), reg_str(inst.rt));
+      if (inst.rt == 0) PRINT("%-8s %s, %s\n", "move", reg_str(inst.rd), reg_str(inst.rs));
+      else PRINT("%-8s %s, %s, %s\n", "addu", reg_str(inst.rd), reg_str(inst.rs), reg_str(inst.rt));
       break;
     case 34:
       if (inst.shamt != 0x0) return false;
@@ -291,20 +313,39 @@ bool handle_r(const uint32_t pc, const struct RType inst) {
       break;
     default:
       PRINT("NOT IMPLEMENTED\n");
-      break;
+      return false;
   }
   return true;
 }
 
-static const char* bc_str(const uint8_t bc) {
+static const char* bc_str(const uint8_t bc, const int cop) {
   switch (bc) {
-    case 0:  return "bc1f";
-    case 1:  return "bc1t";
-    case 2:  return "bc1fl";
-    case 3:  return "bc1tl";
+    case 0:
+      if      (cop==0) return "bc0f";
+      else if (cop==1) return "bc1f";
+      else if (cop==2) return "bc2f";
+      break;
+    case 1:
+      if      (cop==0) return "bc0t";
+      else if (cop==1) return "bc1t";
+      else if (cop==2) return "bc2t";
+      break;
+    case 2:
+      if      (cop==0) return "bc0fl";
+      else if (cop==1) return "bc1fl";
+      else if (cop==2) return "bc2fl";
+      break;
+    case 3:
+      if      (cop==0) return "bc0tl";
+      else if (cop==1) return "bc1tl";
+      else if (cop==2) return "bc2tl";
+      break;
     default: return NULL;
   }
+  return NULL;
 }
+
+// copz
 static const char* regimm_str(const uint32_t regimm) {
   switch (regimm) {
     case 0:  return "bltz";
@@ -332,6 +373,154 @@ static char fmt_str(const uint32_t fmt) {
     case 20: return 'w';
   }
   return '?';
+}
+
+// FIXME, change to Rtype
+static bool handle_fpu(const uint32_t pc, const IType inst) {
+  // check if Branch On FPU
+  if (inst.rs == 0x8) {
+    const char* bc = bc_str(inst.rt & 0x3, 1);
+    if (bc != NULL) {
+      int32_t offset = inst.immediate;
+      offset = offset << 2;
+      offset = offset + pc + 4;          
+      PRINT("%-8s 0x%0x\n", bc, offset);
+      return true;
+    }
+  }
+#ifdef ENABLE_COPZ
+  if ((inst.rs >> 4) == 0x1) {
+    PRINT("%-8s 0x%x\n", "cop1", ((inst.rs & 0xF) << 20) | (inst.rt << 15) | (inst.immediate));
+    return true;
+  }
+#endif
+  // check last 6 bits for FPU instructions
+  switch (inst.immediate & 0x3F) {
+    case 0x0: 
+      if (inst.rs > 6) {
+        PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "add.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
+        return true;
+      }
+      break;
+    case 0x1:
+        PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "sub.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
+        return true;
+    case 0x2:
+      PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "mul.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
+      return true;
+    case 0x3:
+      PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "div.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
+      return true;
+    case 0x4:
+      if (inst.rt == 0) {
+        PRINT("%-s%-3c $f%d, $f%d\n", "sqrt.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x6:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "mov.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x7:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "neg.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x8:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "round.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x9:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "trunc.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0xa:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "ceil.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0xb:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "floor.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0xc:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "round.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0xd:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "trunc.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0xe:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "ceil.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0xf:
+      if (inst.rt == 0) {
+        PRINT("%-s%-4c $f%d, $f%d\n", "floor.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x20:
+      if (inst.rt == 0) {
+        PRINT("%-s%-2c $f%d, $f%d\n", "cvt.s.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x21:
+      if (inst.rt == 0) {
+        PRINT("%-s%-2c $f%d, $f%d\n", "cvt.d.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x24:
+      if (inst.rt == 0) {
+        PRINT("%-s%-2c $f%d, $f%d\n", "cvt.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    case 0x25:
+      if (inst.rt == 0) {
+        PRINT("%-s%-2c $f%d, $f%d\n", "cvt.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
+        return true;
+      }
+      break;
+    default: break;
+  }
+
+  // floating point compare
+  if (((inst.immediate >> 4) & 0xF) == 0x3) {
+    PRINT("%-s%s.%-3c $f%d, $f%d\n", "c.", cond_str(inst.immediate & 0xF), fmt_str(inst.rs), inst.immediate >> 11, inst.rt);
+    return true;
+  }
+
+  // else last 3 bits must not be 0
+  if ((inst.immediate & 0x7FF) != 0) return false;
+
+  // handle other stuff that's on COP1 10001
+  if      (inst.rs == 0) PRINT("%-8s %s, $f%d\n", "mfc1", reg_str(inst.rt), inst.immediate >> 11);
+  else if (inst.rs == 2) PRINT("%-8s %s, $f%d\n", "cfc1", reg_str(inst.rt), inst.immediate >> 11);
+  else if (inst.rs == 4) PRINT("%-8s %s, $f%d\n", "mtc1", reg_str(inst.rt), inst.immediate >> 11);
+  else if (inst.rs == 6) PRINT("%-8s %s, $%d\n",  "ctc1", reg_str(inst.rt), inst.immediate >> 11);
+  else return false;
+
+  return true;
 }
 
 bool handle_i(const uint32_t pc, const struct IType inst) {
@@ -407,163 +596,116 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
         PRINT("%-8s %s, 0x%x\n", "lui", reg_str(inst.rt), inst.immediate);
         break;
       case 16:
-        if ((inst.immediate >> 6) == 0 && inst.rt == 0 && inst.rs == 0x10) {
-          const uint32_t last_six = (inst.immediate & 0x3F);
-          if (last_six == 0x1) {
-            PRINT("%-8s\n", "tlbr"); break;
-          } else if (last_six == 0x2) {
-            PRINT("%-8s\n", "tlbwi"); break;
-          } else if (last_six == 0x6) {
-            PRINT("%-8s\n", "tlbwr"); break;
-          } else if (last_six == 0x8) {
-            PRINT("%-8s\n", "tlbp"); break;
-          } else if (last_six == 0x18) {
-            PRINT("%-8s\n", "eret"); break;
-          }
-        }
-        if (inst.rs == 0) PRINT("%-8s %s, %s\n", "mfc0", reg_str(inst.rt), reg_str(inst.immediate >> 11));
-        else if (inst.rs == 4) PRINT("%-8s %s, %s, %u\n", "mtc0", reg_str(inst.rt), reg_str(inst.rs), inst.rs);
-        else return false;
-        break;
-      case 17:
-      {
-        // FIXME
-        // move to difference function to handle floating arithmetic
+        // check if Branch On FPU
         if (inst.rs == 0x8) {
-          const char* bc = bc_str(inst.rt & 0x3);
+          const char* bc = bc_str(inst.rt & 0x3, 0);
           if (bc != NULL) {
             int32_t offset = inst.immediate;
             offset = offset << 2;
             offset = offset + pc + 4;          
             PRINT("%-8s 0x%0x\n", bc, offset);
-            break;
+            return true;
           }
         }
-
-        const uint32_t last_six = (inst.immediate & 0x3F);
-        if (last_six == 0x0 && inst.rs > 6) {
-          PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "add.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
-          break;
+#ifdef ENABLE_COPZ
+        if ((inst.rs >> 4) == 0x1) {
+          PRINT("%-8s 0x%x\n", "cop0", ((inst.rs & 0xF) << 20) | (inst.rt << 15) | (inst.immediate));
+          return true;
         }
-        if (last_six == 0x1) {
-          PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "sub.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
-          break;
+#endif
+        if ((inst.immediate >> 6) == 0 && inst.rt == 0 && inst.rs == 0x10) {
+          // check last 6 bits first
+          switch (inst.immediate & 0x3F) {
+            case 0x1:  PRINT("%-8s\n", "tlbr");  return true;
+            case 0x2:  PRINT("%-8s\n", "tlbwi"); return true;
+            case 0x6:  PRINT("%-8s\n", "tlbwr"); return true;
+            case 0x8:  PRINT("%-8s\n", "tlbp");  return true;
+            case 0x18: PRINT("%-8s\n", "eret");  return true;
+            default: break;
+          }
         }
-        if (last_six == 0x2) { // FIXME
-          PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "mul.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
-          break;
-        }
-        if (last_six == 0x3) { // FIXME
-          PRINT("%-s%-4c $f%d, $f%d, $f%d\n", "div.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11, inst.rt);
-          break;
-        }
-        if (last_six == 0x4 && inst.rt == 0) {
-          PRINT("%-s%-3c $f%d, $f%d\n", "sqrt.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x6 && inst.rt == 0) {
-          PRINT("%-s%-4c $f%d, $f%d\n", "trunc.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x7 && inst.rt == 0) {
-          PRINT("%-s%-4c $f%d, $f%d\n", "neg.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x9 && inst.rt == 0) {
-          PRINT("%-s%-4c $f%d, $f%d\n", "neg.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0xd && inst.rt == 0) {
-          PRINT("%-s%-4c $f%d, $f%d\n", "trunc.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x21 && inst.rt == 0) {
-          PRINT("%-s%-2c $f%d, $f%d\n", "cvt.d.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x25 && inst.rt == 0) {
-          PRINT("%-s%-2c $f%d, $f%d\n", "cvt.l.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x20 && inst.rt == 0) {
-          PRINT("%-s%-2c $f%d, $f%d\n", "cvt.s.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (last_six == 0x24 && inst.rt == 0) {
-          PRINT("%-s%-2c $f%d, $f%d\n", "cvt.w.", fmt_str(inst.rs), (inst.immediate >> 6) & 0x3F, inst.immediate >> 11);
-          break;
-        }
-        if (((inst.immediate >> 4) & 0xF) == 0x3) {
-          PRINT("%-s%s.%-3c $f%d, $f%d\n", "c.", cond_str(inst.immediate & 0xF), fmt_str(inst.rs), inst.immediate >> 11, inst.rt);
-          break;
-        }
-
-        // else last 3 bits must not be 0
+        // else last 11 must be 0
         if ((inst.immediate & 0x7FF) != 0) return false;
-        if      (inst.rs == 0) PRINT("%-8s %s, $f%d\n", "mfc1", reg_str(inst.rt), inst.immediate >> 11);
-        else if (inst.rs == 2) PRINT("%-8s %s, $f%d\n", "cfc1", reg_str(inst.rt), inst.immediate >> 11);
-        else if (inst.rs == 4) PRINT("%-8s %s, $f%d\n", "mtc1", reg_str(inst.rt), inst.immediate >> 11);
-        else if (inst.rs == 6) PRINT("%-8s %s, $%d\n", "ctc1", reg_str(inst.rt), inst.immediate >> 11);
+        if      (inst.rs == 0) PRINT("%-8s %s, %s\n", "mfc0", reg_str(inst.rt), reg_str(inst.immediate >> 11));
+        else if (inst.rs == 1) PRINT("%-8s %s, %s\n","dmfc0", reg_str(inst.rt), reg_str(inst.immediate >> 11));
+        else if (inst.rs == 4) PRINT("%-8s %s, %s\n", "mtc0", reg_str(inst.rt), reg_str(inst.immediate >> 11));
         else return false;
         break;
-      }
+      case 17: return handle_fpu(pc, inst);
       case 18:
-        // FIXME, bad 2nd value
+        // check if Branch On FPU
+        if (inst.rs == 0x8) {
+          const char* bc = bc_str(inst.rt & 0x3, 2);
+          if (bc != NULL) {
+            int32_t offset = inst.immediate;
+            offset = offset << 2;
+            offset = offset + pc + 4;          
+            PRINT("%-8s 0x%0x\n", bc, offset);
+            return true;
+          }
+        }
+#ifdef ENABLE_COPZ
+        if ((inst.rs >> 4) == 0x1) {
+          PRINT("%-8s 0x%x\n", "cop2", ((inst.rs & 0xF) << 20) | (inst.rt << 15) | (inst.immediate));
+          return true;
+        }
+#endif
+        // else last 11 must be 0
         if ((inst.immediate & 0x7FF) != 0) return false;
-        if (inst.rs == 0)      PRINT("%-8s %s, $f%d\n", "mfc2", reg_str(inst.rt), inst.immediate >> 11);
+        if      (inst.rs == 0) PRINT("%-8s %s, $f%d\n", "mfc2", reg_str(inst.rt), inst.immediate >> 11);
         else if (inst.rs == 2) PRINT("%-8s %s, $f%d\n", "cfc2", reg_str(inst.rt), inst.immediate >> 11);
         else if (inst.rs == 4) PRINT("%-8s %s, $f%d\n", "mtc2", reg_str(inst.rt), inst.immediate >> 11);
-        else if (inst.rs == 6) PRINT("%-8s %s, $%d\n", "ctc2", reg_str(inst.rt), inst.immediate >> 11);
+        else if (inst.rs == 6) PRINT("%-8s %s, $%d\n",  "ctc2", reg_str(inst.rt), inst.immediate >> 11);
         else return false;        
         break;
-      case 20: // FIXME, wrong offset
+      case 20:
       {
-        int32_t offset = (int32_t)inst.immediate;
+        int32_t offset = (int16_t)inst.immediate;
         offset = offset << 2;
         offset = offset + pc + 4;
         PRINT("%-8s %s, %s, 0x%08X\n", "beql", reg_str(inst.rs), reg_str(inst.rt), offset);
         break;
       }
-      case 21: // FIXME, wrong offset
+      case 21:
       {
-        int32_t offset = (int32_t)inst.immediate;
+        int32_t offset = (int16_t)inst.immediate;
         offset = offset << 2;
         offset = offset + pc + 4;
         PRINT("%-8s %s, %s, 0x%08X\n", "bnel", reg_str(inst.rs), reg_str(inst.rt), offset);
         break;
       }
       case 22:
-      { // FIXME, sign extend
+      {
         if (inst.rt != 0x0) return false;
-        int32_t offset = inst.immediate;
+        int32_t offset = (int16_t)inst.immediate;
         offset = offset << 2;
         offset = offset + pc + 4;
         PRINT("%-8s %s, 0x%08X\n", "blezl", reg_str(inst.rs), offset);
         break;
       }
       case 23:
-      { // FIXME, sign extend
+      {
         if (inst.rt != 0x0) return false;
-        int32_t offset = inst.immediate;
+        int32_t offset = (int16_t)inst.immediate;
         offset = offset << 2;
         offset = offset + pc + 4;
-        PRINT("%-8s %s, 0x%08X\n", "bgtzl", reg_str(inst.rs), (int16_t) offset);
+        PRINT("%-8s %s, 0x%08X\n", "bgtzl", reg_str(inst.rs), offset);
         break;
       }
       case 24:
       {
-        int32_t offset = inst.immediate;
+        int32_t offset = (int16_t)inst.immediate;
         offset = offset << 2;
         offset = offset + pc + 4;
-        PRINT("%-8s %s, %s, %i\n", "daddi", reg_str(inst.rt), reg_str(inst.rs), (int16_t)offset);
+        PRINT("%-8s %s, %s, %i\n", "daddi", reg_str(inst.rt), reg_str(inst.rs), offset);
         break;
       }
       case 25:
       {
-        int32_t offset = inst.immediate;
+        int32_t offset = (int16_t)inst.immediate;
         offset = offset << 2;
         offset = offset + pc + 4;
-        PRINT("%-8s %s, %s, %i\n", "daddiu", reg_str(inst.rt), reg_str(inst.rs), (int16_t)offset);
+        PRINT("%-8s %s, %s, %i\n", "daddiu", reg_str(inst.rt), reg_str(inst.rs), offset);
         break;
       }
       case 27:
@@ -667,9 +809,11 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
 }
 
 bool handle_j(const uint32_t pc, const struct JType inst) {
-  uint32_t target = inst.target;
-  target = target << 2;
-  target = target | (0x10000000 & pc);
+  uint32_t target = (uint32_t)inst.target;
+  // shift left twice
+  target = (target & 0xFFFFFF ) << 2;
+  // add the first for bits of PC
+  target = ((pc+4) & 0xF0000000) | target;
 
   PRINT("%-8s 0x%08X\n", inst.opcode == 2 ? "j" : "jal", target);
   return true;
