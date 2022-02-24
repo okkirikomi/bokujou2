@@ -19,12 +19,16 @@
 
 #include "crc_check.h"
 #include "log.h"
+#include "mips.h"
 #include "shift_js.h"
 
-// Biggest possible ROM is 512 megabits
+// Biggest possible N64 ROM is 512 megabits
 static const long MAX_ROM_SIZE = 0x3D09000;
-// Smallest possible ROM is 32 megabits
+// Smallest possible N64 ROM is 32 megabits
 static const long MIN_ROM_SIZE = 0x3D0900;
+
+// ASM starts here
+static const uint32_t BOOTCODE_ENDS = 0x1000;
 
 static const char* rom_type_string(const byte b) {
   switch (b) {
@@ -103,6 +107,7 @@ bool Rom::load(const char* path) {
   if (!check_format()) goto unload;
   if (!parse_header()) goto unload;
   if (!verify_header()) goto unload;
+  if (!find_binary()) goto unload;
 
   ok = true;
   goto close_file;
@@ -119,7 +124,7 @@ static const uint32_t Z64_MAGIC = 0x80371240;
 static const uint32_t N64_MAGIC = 0x40123780;
 static const uint32_t V64_MAGIC = 0x37804012;
 
-bool Rom::check_format() {
+bool Rom::check_format() const {
   uint32_t endianness;
   read((byte*)&endianness, 0x00, 4);
   const uint32_t magic_number = be32toh(endianness);
@@ -164,7 +169,8 @@ bool Rom::verify_header() {
 
   // check crc
   uint32_t crc[2];
-  if (!calc_crc(crc, data)) {
+  bootcode = calc_crc(crc, data);
+  if (bootcode == 0) {
     LOG_ERROR("Error calculating the cart CRC!\n");
     return false;
   }
@@ -181,13 +187,15 @@ bool Rom::verify_header() {
   return true;
 }
 
-void Rom::read(byte* target, const uint32_t from, const uint32_t size) {
+void Rom::read(byte* target, const uint32_t from, const uint32_t size) const {
   memcpy(target, &data[from], size);
 }
 
 bool Rom::parse_header() {
   crc1 = data[0x10] << 24 | data[0x11] << 16 | data[0x12] << 8 | data[0x13];
   crc2 = data[0x14] << 24 | data[0x15] << 16 | data[0x16] << 8 | data[0x17];
+
+  program_counter = data[0x08] << 24 | data[0x09] << 16 | data[0x0A] << 8 | data[0x0B];
 
   read(title, 0x20, TITLE_SIZE);
   read(media_format, 0x38, FORMAT_SIZE);
@@ -199,7 +207,89 @@ bool Rom::parse_header() {
   return true;
 }
 
+uint32_t Rom::entry_point() const {
+  switch (bootcode) {
+    case 6101: return program_counter;
+    case 6102: return program_counter;
+    case 6103: return program_counter - 0x100000;
+    case 6105: return program_counter;
+    case 6106: return program_counter - 0x200000;
+    default: return program_counter;
+  }
+}
+
+#define DUMP_BINARY 0
+
+void reverse_copy(byte* to, const byte* from, const size_t n) {
+  for (size_t i = 0; i < n; ++i) to[n-1-i] = from[i];
+
+#if DUMP_BINARY
+  for (int a = 0; a < n; ++a) {
+    for (int i = 0; i < 8; i++) LOG("%d", !!((from[a] << i) & 0x80));
+  }
+  LOG("    ");
+#endif
+}
+
+// #include "capstone_test.h"
+
+bool Rom::find_binary() {
+  const uint32_t entry = entry_point();
+  LOG("bootcode %i\n", bootcode);
+  LOG("program_counter 0x%x\n", program_counter);
+  LOG("entry 0x%x\n", entry);
+
+  int jump_count = 0;
+  int incond_branch = 0;
+  uint32_t asm_end = 0;
+
+  // capstone
+  //test(&data[0x1000], data_size, entry);
+  //return;
+
+  // We process each 32 bits as Mips instructions until we hit
+  // something malformed, then assume ASM stops there.
+  // This is not foolproof, as non ASM binary data could still be
+  // valid Mips. This is as good as we can get when decompiling.
+  Instruction mips_inst;
+  for (uint32_t at = BOOTCODE_ENDS; at < data_size; at += sizeof(mips_inst)) {
+    reverse_copy((byte*)&mips_inst, &data[at], sizeof(mips_inst));
+    bool ok;
+    switch (mips_inst.r.opcode) {
+      case 0:
+        ok = handle_r(program_counter, mips_inst.r);
+        break;
+      case 2:
+      case 3:
+        ok = handle_j(program_counter, mips_inst.j);
+        if (ok && mips_is_j(mips_inst.j)) ++jump_count;
+        break;
+      default:
+        ok = handle_i(program_counter, mips_inst.i);
+        if (ok && mips_is_b(mips_inst.i)) ++incond_branch;
+        break;
+    }
+    if (!ok) {
+      asm_end = at - sizeof(mips_inst);
+      break;
+    }
+    program_counter += sizeof(mips_inst);
+  }
+  binary_start = asm_end + 4;
+  LOG("# inconditional jumps: %i\n", jump_count);
+  LOG("# inconditional branches: %i\n", incond_branch);
+  LOG("asm code ends at: 0x%x\n", asm_end);
+  LOG("binary starts at: 0x%x\n", binary_start);
+
+  return true;
+}
 
 void Rom::dump_text() {
-  
+  // Now the real fun begins, we must figure out whatever
+  // is encoded in that binary thingie.
+  // TODO, check for common format
+  // TODO, check what is the asm doing/loading
+
+
+
 }

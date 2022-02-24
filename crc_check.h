@@ -20,10 +20,10 @@
 
 #pragma once
 
-static const uint32_t HEADER_SIZE = 0x40;
-static const uint32_t BOOTCODE_SIZE = 0x1000 - HEADER_SIZE;
-static const uint32_t CHECKSUM_START = 0x00001000;
-static const uint32_t CHECKSUM_LENGTH = 0x00100000;
+static const uint32_t HEADER_SIZE      = 0x40;
+static const uint32_t BOOTCODE_SIZE    = 0x1000 - HEADER_SIZE;
+static const uint32_t CHECKSUM_START   = 0x00001000;
+static const uint32_t CHECKSUM_LENGTH  = 0x00100000;
 static const uint32_t CHECKSUM_CIC6102 = 0xF8CA4DDC;
 static const uint32_t CHECKSUM_CIC6103 = 0xA3886759;
 static const uint32_t CHECKSUM_CIC6105 = 0xDF26F436;
@@ -37,7 +37,7 @@ static const uint32_t crc_table[256] = {0x0,0x77073096,0xee0e612c,0x990951ba,0x7
                         (b)[2] <<  8 | \
                         (b)[3] )
 
-bool calc_crc(uint32_t* out_crc, const uint8_t* data) {
+int32_t calc_crc(uint32_t* out_crc, const uint8_t* data) {
   int32_t bootcode;
   uint32_t i;
   uint32_t seed;
@@ -67,7 +67,7 @@ bool calc_crc(uint32_t* out_crc, const uint8_t* data) {
       case 6103: seed = CHECKSUM_CIC6103; break;
       case 6105: seed = CHECKSUM_CIC6105; break;
       case 6106: seed = CHECKSUM_CIC6106; break;
-      default:   return false;
+      default:   return 0;
   }
 
   t1 = t2 = t3 = t4 = t5 = t6 = seed;
@@ -98,5 +98,5 @@ bool calc_crc(uint32_t* out_crc, const uint8_t* data) {
       out_crc[0] = t6 ^ t4 ^ t3;
       out_crc[1] = t5 ^ t2 ^ t1;
   }
-  return true;
+  return bootcode;
 }

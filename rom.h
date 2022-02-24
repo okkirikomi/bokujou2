@@ -21,9 +21,12 @@ struct Rom {
 
   byte* data;
   long data_size;
+  uint32_t binary_start;
 
+  int32_t bootcode;
   uint32_t crc1;
   uint32_t crc2;
+  uint32_t program_counter;
   byte title[TITLE_SIZE];
   byte media_format[FORMAT_SIZE];
   byte cart_id[ID_SIZE];
@@ -32,9 +35,12 @@ struct Rom {
 
 private:
   bool parse_header();
-  bool check_format();
+  bool check_format() const;
   bool verify_header();
-  void read(byte* target, const uint32_t from, const uint32_t size);
+  bool find_binary();
+  void read(byte* target, const uint32_t from, const uint32_t size) const;
+
+  uint32_t entry_point() const;
 
 };
 
