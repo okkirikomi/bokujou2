@@ -381,9 +381,7 @@ static bool handle_fpu(const uint32_t pc, const IType inst) {
   if (inst.rs == 0x8) {
     const char* bc = bc_str(inst.rt & 0x3, 1);
     if (bc != NULL) {
-      int32_t offset = inst.immediate;
-      offset = offset << 2;
-      offset = offset + pc + 4;          
+      int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
       PRINT("%-8s 0x%0x\n", bc, offset);
       return true;
     }
@@ -529,25 +527,19 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
       {
         const char* regimm = regimm_str(inst.rt);
         if (regimm == NULL) return false;
-        int32_t offset = (int32_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, 0x%08X\n", regimm_str(inst.rt), reg_str(inst.rs), offset);
         break;
       }
       case 4:
       {
-        int32_t offset = (int32_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, %s, 0x%08X\n", "beq", reg_str(inst.rs), reg_str(inst.rt), offset);
         break;
       }
       case 5:
       {
-        int32_t offset = (int32_t) inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         if (inst.rt == 0) PRINT("%-8s %s, 0x%08X\n", "bnez", reg_str(inst.rs), offset);
         else PRINT("%-8s %s, %s, 0x%08X\n", "bne", reg_str(inst.rs), reg_str(inst.rt), offset);
         break;
@@ -555,18 +547,14 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
       case 6:
       {
         if (inst.rt != 0x0) return false;
-        int32_t offset = inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, 0x%08X\n", "blez", reg_str(inst.rs), offset);
         break;
       }
       case 7:
       {
         if (inst.rt != 0x0) return false;
-        int32_t offset = inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, 0x%08X\n", "bgtz", reg_str(inst.rs), offset);
         break;
       }
@@ -600,9 +588,7 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
         if (inst.rs == 0x8) {
           const char* bc = bc_str(inst.rt & 0x3, 0);
           if (bc != NULL) {
-            int32_t offset = inst.immediate;
-            offset = offset << 2;
-            offset = offset + pc + 4;          
+            int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
             PRINT("%-8s 0x%0x\n", bc, offset);
             return true;
           }
@@ -637,9 +623,7 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
         if (inst.rs == 0x8) {
           const char* bc = bc_str(inst.rt & 0x3, 2);
           if (bc != NULL) {
-            int32_t offset = inst.immediate;
-            offset = offset << 2;
-            offset = offset + pc + 4;          
+            int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
             PRINT("%-8s 0x%0x\n", bc, offset);
             return true;
           }
@@ -660,51 +644,37 @@ bool handle_i(const uint32_t pc, const struct IType inst) {
         break;
       case 20:
       {
-        int32_t offset = (int16_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, %s, 0x%08X\n", "beql", reg_str(inst.rs), reg_str(inst.rt), offset);
         break;
       }
       case 21:
       {
-        int32_t offset = (int16_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, %s, 0x%08X\n", "bnel", reg_str(inst.rs), reg_str(inst.rt), offset);
         break;
       }
       case 22:
       {
-        if (inst.rt != 0x0) return false;
-        int32_t offset = (int16_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, 0x%08X\n", "blezl", reg_str(inst.rs), offset);
         break;
       }
       case 23:
       {
-        if (inst.rt != 0x0) return false;
-        int32_t offset = (int16_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, 0x%08X\n", "bgtzl", reg_str(inst.rs), offset);
         break;
       }
       case 24:
       {
-        int32_t offset = (int16_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, %s, %i\n", "daddi", reg_str(inst.rt), reg_str(inst.rs), offset);
         break;
       }
       case 25:
       {
-        int32_t offset = (int16_t)inst.immediate;
-        offset = offset << 2;
-        offset = offset + pc + 4;
+        int32_t offset = (((int16_t) inst.immediate) << 2) + (pc + 4);
         PRINT("%-8s %s, %s, %i\n", "daddiu", reg_str(inst.rt), reg_str(inst.rs), offset);
         break;
       }
