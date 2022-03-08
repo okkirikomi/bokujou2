@@ -14,7 +14,7 @@ static const size_t ID_SIZE = 4;
 struct Rom {
   bool load(const char* path);
   void unload();
-  void dump_text();
+  bool dump_text();
 
   unsigned char operator[] (size_t i) const { return data[i]; }
   unsigned char& operator[] (size_t i) { return data[i]; }

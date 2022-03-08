@@ -228,17 +228,8 @@ uint32_t Rom::entry_point() const {
   }
 }
 
-#define DUMP_BINARY 0
-
 void reverse_copy(byte* to, const byte* from, const size_t n) {
   for (size_t i = 0; i < n; ++i) to[n-1-i] = from[i];
-
-#if DUMP_BINARY
-  for (int a = 0; a < n; ++a) {
-    for (int i = 0; i < 8; i++) LOG("%d", !!((from[a] << i) & 0x80));
-  }
-  LOG("    ");
-#endif
 }
 
 bool Rom::find_binary() {
@@ -253,7 +244,7 @@ bool Rom::find_binary() {
 
   mips_set_file(rom_name);
 
-  // We process each 32 bits as Mips instructions until we hit
+  // We process each 32 bits as MIPS instructions until we hit
   // something malformed, then assume ASM stops there.
   // This is not foolproof, as non ASM binary data could still be
   // valid MIPS. This is as good as we can get when decompiling.
@@ -292,12 +283,19 @@ bool Rom::find_binary() {
   return true;
 }
 
-void Rom::dump_text() {
+bool Rom::dump_text() {
+  // check that it's the correct ROM
+  if (crc1 != 0xb3d451c6 || crc2 != 0xe1cb58e2) return false;
+
   // Now the real fun begins, we must figure out whatever
   // is encoded in that binary thingie.
-  // TODO, check for common format
-  // TODO, check what is the asm doing/loading
+  // A) check for common format
+  // zip format, text encoding, etc
+  // improbable, but we never know
 
+  // B) check what is the asm doing/loading
+  // too slow manually, need to make an emulator or decompiler
 
-
+  // we aren't doing anything yet
+  return false;
 }
